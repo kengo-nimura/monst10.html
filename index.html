@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>モンスト反射シミュレータ 完全版</title>
+    <style>
+        body { margin: 0; background: #000; overflow: hidden; display: flex; flex-direction: column; height: 100vh; font-family: sans-serif; }
+        #canvas-container { flex: 1; position: relative; background: #111; display: flex; justify-content: center; align-items: center; }
+        canvas { display: block; touch-action: none; }
+        #toolbar { height: 80px; background: #d3d3d3; display: flex; justify-content: space-around; align-items: center; border-top: 2px solid #999; padding-bottom: env(safe-area-inset-bottom); }
+        .tool-btn { display: flex; flex-direction: column; align-items: center; cursor: pointer; color: #333; font-size: 10px; flex: 1; }
+        .tool-icon { width: 34px; height: 34px; border: 1px solid #777; border-radius: 4px; display: flex; justify-content: center; align-items: center; background: #fff; font-size: 20px; margin-bottom: 2px; }
+        .active .tool-icon { background: #007AFF; color: #fff; }
+        #settings { position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.85); padding: 15px; border-radius: 10px; color: white; font-size: 12px; z-index: 1000; display: none; }
+        #settings.show { display: block; }
+    </style>
+</head>
+<body>
+
+<div id="canvas-container">
+    <div id="settings">
+        左右壁: <input type="range" id="sM" min="0" max="100" value="15"><br>
+        上部壁: <input type="range" id="tM" min="0" max="300" value="120"><br>
+        下部壁: <input type="range" id="bM" min="0" max="400" value="230"><br>
+        <button onclick="blocks=[];draw();" style="margin-top:10px;">🗑 ブロック全消去</button>
+    </div>
+    <canvas id="canvas"></canvas>
+</div>
+
+<div id="toolbar">
+    <label class="tool-btn"><input type="file" id="imgInput" style="display:none"><div class="tool-icon">🖼</div>スクショ</label>
+    <div class="tool-btn" id="blockBtn"><div class="tool-icon">＋</div>ブロック</div>
+    <div class="tool-btn" id="refBtn"><div class="tool-icon" id="refNum">10</div>反射数</div>
+    <div class="tool-btn" onclick="document.getElementById('settings').classList.toggle('show')"><div class="tool-icon">⚙</div>調整</div>
+</div>
+
+<script>
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+let img = null, start = {x:0, y:0}, target = {x:0, y:0}, maxRef = 10, blocks = [], isAddingBlock = false, isDraggingStart = false;
+let m = { side: 15, top: 120, bottom: 230 };
+
+function init() {
+    const container = document.getElementById("canvas-container");
+    canvas.width = container.clientWidth;
+    canvas.height = container.clientHeight;
+    start = { x: canvas.width / 2, y: canvas.height * 0.7 };
+    target = { x: start.x + 50, y: start.y - 100 };
+    draw();
+}
+
+document.getElementById("refBtn").onclick = () => {
+    maxRef = maxRef >= 25 ? 5 : maxRef + 5;
+    document.getElementById("refNum").innerText = maxRef;
+    draw();
+};
+
+document.getElementById("blockBtn").onclick = function() {
+    isAddingBlock = !isAddingBlock;
+    this.classList.toggle("active", isAddingBlock);
+};
+
+document.getElementById("imgInput").onchange = e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+        const newImg = new Image();
+        newImg.onload = () => {
+            img = newImg;
+            const container = document.getElementById("canvas-container");
+            const scale = container.clientHeight / img.height;
+            canvas.width = img.width * scale;
+            canvas.height = container.clientHeight;
+            draw();
+        };
+        newImg.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+};
+
+['sM', 'tM', 'bM'].forEach(id => document.getElementById(id).oninput = e => {
+    m[id === 'sM' ? 'side' : id === 'tM' ? 'top' : 'bottom'] = parseInt(e.target.value);
+    draw();
+});
+
+// 六角形の描画関数（お手本再現）
+function drawHex(x, y, size) {
+    ctx.beginPath();
+    for (let i = 0; i < 6; i++) {
+        ctx.lineTo(x + size * Math.cos(i * Math.PI / 3), y + size * Math.sin(i * Math.PI / 3));
+    }
+    ctx.closePath();
+    ctx.strokeStyle = "#00ffff";
+    ctx.lineWidth = 3;
+    ctx.stroke();
+}
+
+function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (img) ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+    const L = m.side, R = canvas.width - L, T = m.top, B = canvas.height - m.bottom;
+    ctx.strokeStyle = "rgba(0, 150, 255, 0.4)";
+    ctx.setLineDash([5, 5]);
+    ctx.strokeRect(L, T, R - L, B - T);
+
+    ctx.setLineDash([]);
+    ctx.strokeStyle = "#00ff00";
+    blocks.forEach(b => ctx.strokeRect(b.x, b.y, b.w, b.h));
+
+    let cx = start.x, cy = start.y, vx = target.x - start.x, vy = target.y - start.y;
+    const mag = Math.hypot(vx, vy);
+    vx /= mag; vy /= mag;
+
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.strokeStyle = "red";
+    ctx.lineWidth = 3;
+    ctx.setLineDash([8, 4]);
+
+    for (let i = 0; i < maxRef; i++) {
+        let t = 10000, hit = null, side = "";
+
+        // 壁との衝突
+        let txL = (L - cx) / vx, txR = (R - cx) / vx, tyT = (T - cy) / vy, tyB = (B - cy) / vy;
+        if (txL > 0.01 && txL < t) { t = txL; side = "x"; }
+        if (txR > 0.01 && txR < t) { t = txR; side = "x"; }
+        if (tyT > 0.01 && tyT < t) { t = tyT; side = "y"; }
+        if (tyB > 0.01 && tyB < t) { t = tyB; side = "y"; }
+
+        // ブロックとの衝突
+        blocks.forEach(b => {
+            let btL = (b.x - cx) / vx, btR = (b.x + b.w - cx) / vx;
+            let btT = (b.y - cy) / vy, btB = (b.y + b.h - cy) / vy;
+            [btL, btR].forEach(bt => {
+                let y = cy + vy * bt;
+                if (bt > 0.01 && bt < t && y >= b.y && y <= b.y + b.h) { t = bt; side = "x"; hit = "block"; }
+            });
+            [btT, btB].forEach(bt => {
+                let x = cx + vx * bt;
+                if (bt > 0.01 && bt < t && x >= b.x && x <= b.x + b.w) { t = bt; side = "y"; hit = "block"; }
+            });
+        });
+
+        cx += vx * t; cy += vy * t;
+        ctx.lineTo(cx, cy);
+        if (hit === "block") drawHex(cx, cy, 15); // お手本の水色六角形
+        if (side === "x") vx *= -1; else vy *= -1;
+    }
+    ctx.stroke();
+
+    ctx.setLineDash([]);
+    ctx.beginPath(); ctx.arc(start.x, start.y, 20, 0, 7);
+    ctx.fillStyle = "rgba(255, 0, 0, 0.5)"; ctx.fill();
+    ctx.strokeStyle = "white"; ctx.stroke();
+}
+
+const getP = e => {
+    const r = canvas.getBoundingClientRect();
+    const t = e.touches ? e.touches[0] : e;
+    return { x: t.clientX - r.left, y: t.clientY - r.top };
+};
+
+canvas.addEventListener("touchstart", e => {
+    const p = getP(e);
+    if (isAddingBlock) {
+        blocks.push({ x: p.x - 40, y: p.y - 40, w: 80, h: 80 }); // ブロックを大きく
+        draw();
+    } else if (Math.hypot(p.x - start.x, p.y - start.y) < 40) isDraggingStart = true;
+    else { target = p; draw(); }
+    e.preventDefault();
+}, {passive: false});
+
+canvas.addEventListener("touchmove", e => {
+    const p = getP(e);
+    if (isDraggingStart) start = p; else if (!isAddingBlock) target = p;
+    draw(); e.preventDefault();
+}, {passive: false});
+
+window.addEventListener("touchend", () => isDraggingStart = false);
+window.onload = init;
+</script>
+</body>
+</html>
