@@ -41,103 +41,13 @@ const ctx = canvas.getContext("2d");
 let img = null, start = {x:0, y:0}, target = {x:0, y:0}, maxRef = 10, blocks = [], isAddingBlock = false, isDragging = false, isDraggingStart = false;
 let m = { side: 15, top: 120, bottom: 230 };
 
-function draw() {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    if (img) ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-
-    const L = m.side, R = canvas.width - m.side, T = m.top, B = canvas.height - m.bottom;
-    
-    // 壁のガイド表示
-    ctx.strokeStyle = "rgba(0, 150, 255, 0.4)";
-    ctx.setLineDash([5, 5]);
-    ctx.strokeRect(L, T, R - L, B - T);
-
-    // ブロックの表示
-    ctx.setLineDash([]);
-    ctx.strokeStyle = "#00ff00";
-    ctx.lineWidth = 2;
-    blocks.forEach(b => ctx.strokeRect(b.x, b.y, b.w, b.h));
-
-    // ガイドラインの計算開始
-    let cx = start.x, cy = start.y;
-    let vx = target.x - start.x, vy = target.y - start.y;
-    const mag = Math.hypot(vx, vy);
-
-    if (mag > 1) { // 距離がある程度ある時だけ描画
-        vx /= mag; 
-        vy /= mag;
-
-        ctx.beginPath();
-        ctx.moveTo(cx, cy);
-        ctx.strokeStyle = "red";
-        ctx.lineWidth = 3;
-        ctx.setLineDash([8, 4]);
-
-        for (let i = 0; i < maxRef; i++) {
-            let t = 10000; // 十分に遠い距離
-            let hitType = null; // 何に当たったか
-            let side = ""; // x軸(縦壁)かy軸(横壁)か
-
-            // 外枠の壁との衝突判定
-            const checkWall = (dist, vel, s) => {
-                let time = dist / vel;
-                if (time > 0.5 && time < t) { // 0.5px以上の移動がある場合のみ
-                    t = time;
-                    side = s;
-                    hitType = "wall";
-                }
-            };
-
-            if (vx > 0) checkWall(R - cx, vx, "x");
-            else if (vx < 0) checkWall(L - cx, vx, "x");
-            if (vy > 0) checkWall(B - cy, vy, "y");
-            else if (vy < 0) checkWall(T - cy, vy, "y");
-
-            // 配置されたブロックとの衝突判定
-            blocks.forEach(b => {
-                // 各辺との衝突時間を計算
-                let tL = (b.x - cx) / vx, tR = (b.x + b.w - cx) / vx;
-                let tT = (b.y - cy) / vy, tB = (b.y + b.h - cy) / vy;
-
-                [tL, tR].forEach(bt => {
-                    let py = cy + vy * bt;
-                    if (bt > 0.5 && bt < t && py >= b.y && py <= b.y + b.h) {
-                        t = bt; side = "x"; hitType = "block";
-                    }
-                });
-                [tT, tB].forEach(bt => {
-                    let px = cx + vx * bt;
-                    if (bt > 0.5 && bt < t && px >= b.x && px <= b.x + b.w) {
-                        t = bt; side = "y"; hitType = "block";
-                    }
-                });
-            });
-
-            // 線を描画
-            cx += vx * t;
-            cy += vy * t;
-            ctx.lineTo(cx, cy);
-
-            // ブロックに当たった時は六角形を表示
-            if (hitType === "block") drawHex(cx, cy, 15);
-
-            // 反射ベクトル反転
-            if (side === "x") vx *= -1; 
-            else if (side === "y") vy *= -1;
-            else break; // どこにも当たらない場合は終了
-        }
-        ctx.stroke();
-    }
-
-    // 始点（自キャラ）の描画
-    ctx.setLineDash([]);
-    ctx.beginPath();
-    ctx.arc(start.x, start.y, 20, 0, Math.PI * 2);
-    ctx.fillStyle = "rgba(255, 0, 0, 0.5)";
-    ctx.fill();
-    ctx.strokeStyle = "white";
-    ctx.lineWidth = 2;
-    ctx.stroke();
+function init() {
+    const container = document.getElementById("canvas-container");
+    canvas.width = container.clientWidth;
+    canvas.height = container.clientHeight;
+    start = { x: canvas.width / 2, y: canvas.height * 0.7 };
+    target = { x: start.x + 50, y: start.y - 100 };
+    draw();
 }
 
 document.getElementById("refBtn").onclick = () => {
