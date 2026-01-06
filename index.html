@@ -103,22 +103,17 @@ function drawHex(x, y, size) {
 }
 
 function draw() {
-    // キャンバスをクリア
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    
-    // 背景画像を描画（ここが重要！）
-    if (img) {
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-    } else {
-        ctx.fillStyle = "#111";
-        ctx.fillRect(0,0,canvas.width, canvas.height);
-    }
+    if (img) ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
     const L = m.side, R = canvas.width - m.side, T = m.top, B = canvas.height - m.bottom;
+    
+    // 外枠ガイド
     ctx.strokeStyle = "rgba(0, 150, 255, 0.4)";
     ctx.setLineDash([5, 5]);
     ctx.strokeRect(L, T, R - L, B - T);
 
+    // ブロック表示
     ctx.setLineDash([]);
     ctx.strokeStyle = "#00ff00";
     ctx.lineWidth = 2;
@@ -137,33 +132,54 @@ function draw() {
         ctx.setLineDash([8, 4]);
 
         for (let i = 0; i < maxRef; i++) {
-            let t = 10000, hitType = null, side = ""; 
+            let t = Infinity;
+            let side = ""; 
+            let hitBlock = false;
 
-            if (vx > 0) { let time = (R - cx) / vx; if (time > 0.5 && time < t) { t = time; side = "x"; hitType = "wall"; } }
-            else if (vx < 0) { let time = (L - cx) / vx; if (time > 0.5 && time < t) { t = time; side = "x"; hitType = "wall"; } }
-            if (vy > 0) { let time = (B - cy) / vy; if (time > 0.5 && time < t) { t = time; side = "y"; hitType = "wall"; } }
-            else if (vy < 0) { let time = (T - cy) / vy; if (time > 0.5 && time < t) { t = time; side = "y"; hitType = "wall"; } }
+            // --- 壁との判定 ---
+            if (vx > 0) { let d = (R - cx) / vx; if (d > 0.1 && d < t) { t = d; side = "x"; } }
+            if (vx < 0) { let d = (L - cx) / vx; if (d > 0.1 && d < t) { t = d; side = "x"; } }
+            if (vy > 0) { let d = (B - cy) / vy; if (d > 0.1 && d < t) { t = d; side = "y"; } }
+            if (vy < 0) { let d = (T - cy) / vy; if (d > 0.1 && d < t) { t = d; side = "y"; } }
 
+            // --- ブロックとの判定 ---
             blocks.forEach(b => {
-                let tL = (b.x - cx) / vx, tR = (b.x + b.w - cx) / vx;
-                let tT = (b.y - cy) / vy, tB = (b.y + b.h - cy) / vy;
-                [tL, tR].forEach(bt => {
-                    let py = cy + vy * bt;
-                    if (bt > 0.5 && bt < t && py >= b.y && py <= b.y + b.h) { t = bt; side = "x"; hitType = "block"; }
-                });
-                [tT, tB].forEach(bt => {
-                    let px = cx + vx * bt;
-                    if (bt > 0.5 && bt < t && px >= b.x && px <= b.x + b.w) { t = bt; side = "y"; hitType = "block"; }
-                });
+                // 左右の面
+                if (vx > 0) { let d = (b.x - cx) / vx; let y = cy + vy * d; if (d > 0.1 && d < t && y >= b.y && y <= b.y + b.h) { t = d; side = "x"; hitBlock = true; } }
+                if (vx < 0) { let d = (b.x + b.w - cx) / vx; let y = cy + vy * d; if (d > 0.1 && d < t && y >= b.y && y <= b.y + b.h) { t = d; side = "x"; hitBlock = true; } }
+                // 上下の面
+                if (vy > 0) { let d = (b.y - cy) / vy; let x = cx + vx * d; if (d > 0.1 && d < t && x >= b.x && x <= b.x + b.w) { t = d; side = "y"; hitBlock = true; } }
+                if (vy < 0) { let d = (b.y + b.h - cy) / vy; let x = cx + vx * d; if (d > 0.1 && d < t && x >= b.x && x <= b.x + b.w) { t = d; side = "y"; hitBlock = true; } }
             });
 
-            cx += vx * t; cy += vy * t;
+            if (t === Infinity) break;
+
+            // 移動
+            cx += vx * t;
+            cy += vy * t;
             ctx.lineTo(cx, cy);
-            if (hitType === "block") drawHex(cx, cy, 15);
-            if (side === "x") vx *= -1; else if (side === "y") vy *= -1; else break; 
+
+            if (hitBlock) drawHex(cx, cy, 15);
+
+            // 反射処理と「微小な押し出し」
+            // これにより、次のループで同じ壁の内側にいると判定されるのを防ぎます
+            if (side === "x") {
+                vx *= -1;
+                cx += vx * 0.1; // 進行方向に少し進める
+            } else {
+                vy *= -1;
+                cy += vy * 0.1; // 進行方向に少し進める
+            }
         }
         ctx.stroke();
     }
+
+    // 始点
+    ctx.setLineDash([]);
+    ctx.beginPath(); ctx.arc(start.x, start.y, 20, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(255, 0, 0, 0.5)"; ctx.fill();
+    ctx.strokeStyle = "white"; ctx.lineWidth = 2; ctx.stroke();
+}
 
     ctx.setLineDash([]);
     ctx.beginPath(); ctx.arc(start.x, start.y, 20, 0, Math.PI * 2);
