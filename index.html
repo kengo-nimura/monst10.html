@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>モンスト反射シミュレータ 決定版</title>
+    <title>モンスト反射シミュレータ 最終安定版</title>
     <style>
         body { margin: 0; background: #000; overflow: hidden; display: flex; flex-direction: column; height: 100vh; font-family: sans-serif; }
         #canvas-container { flex: 1; position: relative; background: #111; display: flex; justify-content: center; align-items: center; overflow: hidden; }
-        canvas { display: block; touch-action: none; }
+        canvas { display: block; touch-action: none; background: #000; }
         #toolbar { height: 80px; background: #d3d3d3; display: flex; justify-content: space-around; align-items: center; border-top: 2px solid #999; padding-bottom: env(safe-area-inset-bottom); z-index: 2000; }
         .tool-btn { display: flex; flex-direction: column; align-items: center; cursor: pointer; color: #333; font-size: 10px; flex: 1; }
         .tool-icon { width: 34px; height: 34px; border: 1px solid #777; border-radius: 4px; display: flex; justify-content: center; align-items: center; background: #fff; font-size: 20px; margin-bottom: 2px; }
@@ -50,30 +50,34 @@ function init() {
     draw();
 }
 
-// 画像読み込み処理（iPhone対応強化版）
-document.getElementById("imgInput").onchange = e => {
+// 写真読み込みの修正（ここを強化しました）
+document.getElementById("imgInput").addEventListener('change', function(e) {
     const file = e.target.files[0];
     if (!file) return;
+
     const reader = new FileReader();
-    reader.onload = ev => {
+    reader.onload = function(event) {
         const newImg = new Image();
-        newImg.onload = () => {
+        newImg.onload = function() {
             img = newImg;
             const container = document.getElementById("canvas-container");
-            // 画面の高さに合わせてリサイズ
             const scale = container.clientHeight / img.height;
+            
+            // 重要：サイズ変更を先に行う
             canvas.height = container.clientHeight;
             canvas.width = img.width * scale;
-            
-            // 画像読み込み後に初期位置を調整
+
+            // 初期位置を画面中央付近にリセット
             start = { x: canvas.width / 2, y: canvas.height * 0.7 };
-            target = { x: start.x + 50, y: start.y - 100 };
-            draw();
+            target = { x: start.x, y: start.y - 100 };
+            
+            // 少し待ってから描画（iOSのレンダリング待ち）
+            setTimeout(draw, 50);
         };
-        newImg.src = ev.target.result;
+        newImg.src = event.target.result;
     };
     reader.readAsDataURL(file);
-};
+});
 
 document.getElementById("refBtn").onclick = () => {
     maxRef = maxRef >= 25 ? 5 : maxRef + 5;
@@ -102,18 +106,23 @@ function drawHex(x, y, size) {
     ctx.stroke();
 }
 
+// 反射バグを修正した描画ロジック
 function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    if (img) ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    
+    if (img) {
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    } else {
+        ctx.fillStyle = "#222";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
 
     const L = m.side, R = canvas.width - m.side, T = m.top, B = canvas.height - m.bottom;
     
-    // 外枠ガイド
     ctx.strokeStyle = "rgba(0, 150, 255, 0.4)";
     ctx.setLineDash([5, 5]);
     ctx.strokeRect(L, T, R - L, B - T);
 
-    // ブロック表示
     ctx.setLineDash([]);
     ctx.strokeStyle = "#00ff00";
     ctx.lineWidth = 2;
@@ -136,63 +145,48 @@ function draw() {
             let side = ""; 
             let hitBlock = false;
 
-            // --- 壁との判定 ---
-            if (vx > 0) { let d = (R - cx) / vx; if (d > 0.1 && d < t) { t = d; side = "x"; } }
-            if (vx < 0) { let d = (L - cx) / vx; if (d > 0.1 && d < t) { t = d; side = "x"; } }
-            if (vy > 0) { let d = (B - cy) / vy; if (d > 0.1 && d < t) { t = d; side = "y"; } }
-            if (vy < 0) { let d = (T - cy) / vy; if (d > 0.1 && d < t) { t = d; side = "y"; } }
+            // 壁判定
+            if (vx > 0) { let d = (R - cx) / vx; if (d > 0.5 && d < t) { t = d; side = "x"; } }
+            if (vx < 0) { let d = (L - cx) / vx; if (d > 0.5 && d < t) { t = d; side = "x"; } }
+            if (vy > 0) { let d = (B - cy) / vy; if (d > 0.5 && d < t) { t = d; side = "y"; } }
+            if (vy < 0) { let d = (T - cy) / vy; if (d > 0.5 && d < t) { t = d; side = "y"; } }
 
-            // --- ブロックとの判定 ---
+            // ブロック判定
             blocks.forEach(b => {
-                // 左右の面
-                if (vx > 0) { let d = (b.x - cx) / vx; let y = cy + vy * d; if (d > 0.1 && d < t && y >= b.y && y <= b.y + b.h) { t = d; side = "x"; hitBlock = true; } }
-                if (vx < 0) { let d = (b.x + b.w - cx) / vx; let y = cy + vy * d; if (d > 0.1 && d < t && y >= b.y && y <= b.y + b.h) { t = d; side = "x"; hitBlock = true; } }
-                // 上下の面
-                if (vy > 0) { let d = (b.y - cy) / vy; let x = cx + vx * d; if (d > 0.1 && d < t && x >= b.x && x <= b.x + b.w) { t = d; side = "y"; hitBlock = true; } }
-                if (vy < 0) { let d = (b.y + b.h - cy) / vy; let x = cx + vx * d; if (d > 0.1 && d < t && x >= b.x && x <= b.x + b.w) { t = d; side = "y"; hitBlock = true; } }
+                if (vx > 0) { let d = (b.x - cx) / vx; let y = cy + vy * d; if (d > 0.5 && d < t && y >= b.y && y <= b.y + b.h) { t = d; side = "x"; hitBlock = true; } }
+                if (vx < 0) { let d = (b.x + b.w - cx) / vx; let y = cy + vy * d; if (d > 0.5 && d < t && y >= b.y && y <= b.y + b.h) { t = d; side = "x"; hitBlock = true; } }
+                if (vy > 0) { let d = (b.y - cy) / vy; let x = cx + vx * d; if (d > 0.5 && d < t && x >= b.x && x <= b.x + b.w) { t = d; side = "y"; hitBlock = true; } }
+                if (vy < 0) { let d = (b.y + b.h - cy) / vy; let x = cx + vx * d; if (d > 0.5 && d < t && x >= b.x && x <= b.x + b.w) { t = d; side = "y"; hitBlock = true; } }
             });
 
             if (t === Infinity) break;
 
-            // 移動
             cx += vx * t;
             cy += vy * t;
             ctx.lineTo(cx, cy);
 
             if (hitBlock) drawHex(cx, cy, 15);
 
-            // 反射処理と「微小な押し出し」
-            // これにより、次のループで同じ壁の内側にいると判定されるのを防ぎます
-            if (side === "x") {
-                vx *= -1;
-                cx += vx * 0.1; // 進行方向に少し進める
-            } else {
-                vy *= -1;
-                cy += vy * 0.1; // 進行方向に少し進める
-            }
+            if (side === "x") { vx *= -1; cx += vx * 0.1; } 
+            else { vy *= -1; cy += vy * 0.1; }
         }
         ctx.stroke();
     }
 
-    // 始点
     ctx.setLineDash([]);
     ctx.beginPath(); ctx.arc(start.x, start.y, 20, 0, Math.PI * 2);
     ctx.fillStyle = "rgba(255, 0, 0, 0.5)"; ctx.fill();
     ctx.strokeStyle = "white"; ctx.lineWidth = 2; ctx.stroke();
 }
 
-    ctx.setLineDash([]);
-    ctx.beginPath(); ctx.arc(start.x, start.y, 20, 0, Math.PI * 2);
-    ctx.fillStyle = "rgba(255, 0, 0, 0.5)"; ctx.fill();
-    ctx.strokeStyle = "white"; ctx.lineWidth = 2; ctx.stroke();
-}
-
+// 共通座標取得
 const getP = e => {
     const r = canvas.getBoundingClientRect();
     const t = e.touches ? e.touches[0] : e;
     return { x: t.clientX - r.left, y: t.clientY - r.top };
 };
 
+// 操作イベント
 const down = e => {
     isDragging = true;
     const p = getP(e);
